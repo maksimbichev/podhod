@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#141414"/>
+  <!-- штанга: белый гриф, желтые блины -->
+  <rect x="60" y="243" width="392" height="26" rx="13" fill="#FFFFFF"/>
+  <rect x="140" y="150" width="50" height="212" rx="18" fill="#FFDD2D"/>
+  <rect x="100" y="190" width="32" height="132" rx="14" fill="#FFDD2D"/>
+  <rect x="322" y="150" width="50" height="212" rx="18" fill="#FFDD2D"/>
+  <rect x="380" y="190" width="32" height="132" rx="14" fill="#FFDD2D"/>
+</svg>
