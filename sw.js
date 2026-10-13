@@ -1,7 +1,7 @@
 // Офлайн-кеш «Подхода». Зал в подвале без интернета, поэтому стратегия cache-first:
 // приложение всегда открывается из кеша мгновенно, а свежая версия тихо докачивается в фоне
 // и включается при следующем запуске. Номер версии виден внизу главного экрана.
-const CACHE = 'podhod-v1';
+const CACHE = 'podhod-v2';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
