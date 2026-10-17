@@ -266,7 +266,7 @@ footer:empty{display:none;}
 <input type="file" id="file" accept=".json,application/json" hidden>
 <script>
 'use strict';
-const VERSION='v3';
+const VERSION='v4';
 const LS_KEY='podhod.state.v1';
 const GROUPS=['Грудь','Спина','Ноги','Плечи','Руки','Пресс','Кардио','Растяжка','Другое'];
 const MON=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
@@ -584,6 +584,24 @@ function confirmSheet(title,html,okLabel,fn,danger){
       if(stack.length>1){sh.style.transform='';closeSheet();}
       else{sh.style.transform='translateY(105%)';setTimeout(()=>{sh.style.transform='';},330);closeSheet();}
     }else sh.style.transform='';
+    drag=false;
+  });
+})();
+
+// Свайп вправо от левого края = назад, как в приложениях iPhone (на главном экране не нужен)
+(function(){
+  const app=$('#app');let x0=null,y0=0,dx=0,drag=false;
+  app.addEventListener('touchstart',e=>{if(view==='home'||stack.length||e.touches.length>1){x0=null;return;}
+    const t=e.touches[0];if(t.clientX>44){x0=null;return;}x0=t.clientX;y0=t.clientY;dx=0;drag=false;},{passive:true});
+  app.addEventListener('touchmove',e=>{
+    if(x0==null)return;const t=e.touches[0];dx=t.clientX-x0;const dy=t.clientY-y0;
+    if(!drag){if(dx>10&&dx>Math.abs(dy)*1.5)drag=true;else if(Math.abs(dy)>10||dx<-10){x0=null;return;}}
+    if(drag){e.preventDefault();app.style.transition='none';app.style.transform=`translateX(${Math.max(0,dx)}px)`;}
+  },{passive:false});
+  app.addEventListener('touchend',()=>{
+    if(x0==null)return;x0=null;app.style.transition='transform .22s ease';
+    if(drag&&dx>80){app.style.transform='translateX(100%)';setTimeout(()=>{app.style.transition='none';app.style.transform='';closeAll();go('home');},200);}
+    else app.style.transform='';
     drag=false;
   });
 })();
