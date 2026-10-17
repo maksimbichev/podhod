@@ -82,6 +82,7 @@ footer:empty{display:none;}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .gbtn{background:var(--card);border-radius:var(--r);padding:16px;text-align:left;min-height:94px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;transition:transform .12s;}
 .gbtn:active{transform:scale(.97);}
+.gbtn.wide{grid-column:1/-1;min-height:76px;}
 .gbtn b{font-size:17px;font-weight:800;letter-spacing:-.01em;}
 .gbtn span{color:var(--muted);font-size:13.5px;font-weight:600;}
 
@@ -265,7 +266,7 @@ footer:empty{display:none;}
 <input type="file" id="file" accept=".json,application/json" hidden>
 <script>
 'use strict';
-const VERSION='v2';
+const VERSION='v3';
 const LS_KEY='podhod.state.v1';
 const GROUPS=['Грудь','Спина','Ноги','Плечи','Руки','Пресс','Кардио','Растяжка','Другое'];
 const MON=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
@@ -428,7 +429,7 @@ function nextDay(p){
   return p.days[(i+1)%p.days.length];
 }
 // Неделя закрыта, если в ней (пн-вс) сделано столько тренировок, сколько стоит в программе.
-function weekCount(k){const e=addDays(k,7);let n=0;for(const s of S.sessions)if(s.date>=k&&s.date<e)n++;return n;}
+function weekCount(k){const e=addDays(k,7);let n=0;for(const s of S.sessions)if(s.date>=k&&s.date<e&&s.kind!=='cardio')n++;return n;}
 function weekInfo(p){
   const per=(p&&p.perWeek)||2,t=today(),ws=wkStart(t);
   const now=weekCount(ws);
@@ -459,6 +460,7 @@ function achCompute(){
   const bump=(k,v,s)=>{const a=ACH.find(x=>x.k===k);let i=got[k]==null?-1:got[k];
     while(i+1<a.lv.length&&v>=a.lv[i+1]){i++;list.push({k,n:a.lv[i],title:a.t(a.lv[i]),date:s.date,id:s.id});}got[k]=i;};
   for(const s of S.sessions){
+    if(s.kind==='cardio')continue;   // отдельное кардио не считаем тренировкой в зале
     val.total++;bump('total',val.total,s);
     for(const it of s.items){
       val.tons+=vol(it.sets,ex(it.ex))/1000;
@@ -875,6 +877,7 @@ VIEWS.home=()=>{
     <button class="gbtn" data-a="go" data-v="exercises"><b>Упражнения</b><span>рекорды и графики</span></button>
     <button class="gbtn" data-a="go" data-v="body"><b>Тело</b><span>${lw?fnum(lw.w)+' кг · '+fdayS(lw.date):'замеров нет'}</span></button>
     <button class="gbtn" data-a="go" data-v="program"><b>Программа</b><span>${p?esc(p.title):'не загружена'}</span></button>
+    <button class="gbtn wide" data-a="go" data-v="cardio"><b>Кардио</b><span>${cardioSub()}</span></button>
   </div><div class="ver">${VERSION}</div>`;
   return {head,body:b};
 };
@@ -903,6 +906,35 @@ VIEWS.workout=()=>{
   const head=subHead(s.title,workoutSub(s))+`<div class="wbar"><i style="width:${total?Math.round(doneN/total*100):0}%"></i></div>`;
   return {head,body:b,foot:`<button class="btn-black${all?' ready':''}" style="width:100%" data-a="finish">Закончить тренировку</button>`};
 };
+// --- кардио: все записи из групп «Кардио», запись в одну шторку
+function cardioList(){
+  const out=[];
+  for(const s of S.sessions)for(const it of s.items){const e=ex(it.ex);if(e.group!=='Кардио')continue;
+    for(const st of it.sets)if(st.t)out.push({date:s.date,sid:s.id,e,t:st.t,d:st.d||0});}
+  return out;
+}
+function cardioSub(){const l=cardioList().filter(c=>c.date>=addDays(today(),-29));
+  if(!l.length)return 'записать дорожку, вело, эллипс';
+  return `за 30 дней: ${pl(l.length,'раз','раза','раз')} · ${fnum(round2(l.reduce((a,c)=>a+c.d,0)))} км · ${Math.round(l.reduce((a,c)=>a+c.t,0)/60)} мин`;}
+VIEWS.cardio=()=>{
+  const l=cardioList().reverse();let b=`<div class="card"><div class="wk-t">${cardioSub()}</div></div>`;
+  for(const c of l){const sp=c.d&&c.t?round2(c.d/(c.t/3600)):0;
+    b+=`<div class="row"><div class="d"><b>${pday(c.date).getDate()}</b><span>${MON_S[pday(c.date).getMonth()]}</span></div>
+      <div class="grow"><div class="t">${esc(c.e.name)}</div><div class="s">${[ftime(c.t,c.e),c.d?fnum(c.d)+' км':'',sp?fnum(sp)+' км/ч':''].filter(Boolean).join(' · ')}</div></div></div>`;}
+  if(!l.length)b+='<div class="empty">Кардио пока нет</div>';
+  return {head:subHead('Кардио','дорожка, вело, эллипс'),body:b,foot:`<button class="btn-black" style="width:100%" data-a="addCardio">Записать кардио</button>`};
+};
+let cardioEx=null;
+function cardioSheet(){
+  const xs=S.exercises.filter(e=>e.group==='Кардио');
+  if(!xs.find(e=>e.id===cardioEx))cardioEx=(xs.find(e=>e.name==='Беговая дорожка')||xs[0]||{}).id;
+  return `<div class="h2">Записать кардио</div><div class="form">
+    <label>Что</label><div class="chips">${xs.map(e=>`<button class="chip${e.id===cardioEx?' on':''}" data-a="cardioPick" data-ex="${esc(e.id)}">${esc(e.name)}</button>`).join('')}</div>
+    <div class="g2"><div><label>Минуты</label><input id="cMin" inputmode="decimal"></div><div><label>Км (если есть)</label><input id="cKm" inputmode="decimal"></div></div>
+    <label>Дата</label><input type="date" id="cDate" value="${today()}"></div>
+    ${S.active?'<p class="hint">Добавится в текущую тренировку.</p>':''}
+    <div class="row2"><button class="btn-black" data-a="saveCardio">Сохранить</button></div>`;
+}
 VIEWS.history=()=>{
   let b='',cur='';
   for(let i=S.sessions.length-1;i>=0;i--){
@@ -1136,6 +1168,17 @@ const ACT={
   },
   delWeigh:d=>{const w=S.weighins.find(x=>x.id===d.id);if(!w)return;
     confirmSheet('Удалить замер?',`${fnum(w.w)} кг, ${fday(w.date)}`,'Удалить',()=>{S.weighins=S.weighins.filter(x=>x.id!==w.id);save();render();},true);},
+  addCardio:()=>{if(!S.exercises.some(e=>e.group==='Кардио')){S.exercises.push({id:'u:cardio-run',name:'Беговая дорожка',group:'Кардио',kind:'time',tu:'min',dist:true,step:1});EXI=null;}openSheet(cardioSheet);},
+  cardioPick:d=>{const m=$('#cMin').value,k=$('#cKm').value,dt=$('#cDate').value;cardioEx=d.ex;renderSheet(true);$('#cMin').value=m;$('#cKm').value=k;$('#cDate').value=dt;},
+  saveCardio:()=>{
+    const num=id=>{const v=parseFloat(($(id).value||'').replace(',','.'));return isNaN(v)?null:v;};
+    const m=num('#cMin'),km=num('#cKm'),date=$('#cDate').value||today();
+    if(!m){toast('Нужны минуты');return;}
+    const set={t:Math.round(m*60)};if(km)set.d=km;
+    if(S.active&&date===S.active.date)S.active.items.push({ex:cardioEx,sets:[set],done:true,pain:false,req:false,plan:null});
+    else{S.sessions.push({id:uid(),date,start:pday(date).getTime()+12*36e5,end:null,src:'app',kind:'cardio',prog:null,day:null,title:'Кардио',items:[{ex:cardioEx,sets:[set]}]});sortSessions(S);}
+    save();closeAll();render();toast('Кардио записано');
+  },
   backup:()=>exportBackup(),
   import:()=>$('#file').click(),
   restoreSnap:d=>confirmSheet('Вернуть снимок?',`Данные станут такими, какими были на начало дня ${fday(d.k.slice(5))}. Перед этим лучше сохранить бэкап.`,'Вернуть',async()=>{
