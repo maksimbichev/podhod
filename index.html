@@ -266,7 +266,7 @@ footer:empty{display:none;}
 <input type="file" id="file" accept=".json,application/json" hidden>
 <script>
 'use strict';
-const VERSION='v4';
+const VERSION='v5';
 const LS_KEY='podhod.state.v1';
 const GROUPS=['Грудь','Спина','Ноги','Плечи','Руки','Пресс','Кардио','Растяжка','Другое'];
 const MON=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
@@ -386,40 +386,44 @@ function lastItem(exId){                  // последний раз в тре
   return null;
 }
 function roundStep(w,step){step=step||2.5;return Math.max(0,round2(Math.round(w/step)*step));}
-// Цель на сегодня: стартовый вес программы → двойная прогрессия → возврат после перерыва →
-// «тяжело» = без прибавки → «болело» = на шаг ниже, чем в тот раз → потолок.
+// Цель на сегодня. Повторяем лесенку прошлого раза (например 45 → 49 → 54), а не ставим все подходы
+// на верхний вес. Все подходы сделаны → +шаг только на самом тяжелом. Перерыв → снижаем все подходы.
+// «Тяжело» → без прибавки. «Болело» → каждый подход на шаг ниже, чем в тот раз. Потолок — на каждый подход.
+function lastLadder(ws,n){const b=ws.slice(-n).map(s=>s.w);while(b.length<n)b.push(b[b.length-1]);return b;}
 function target(item,p){
   const e=ex(item.ex),n=item.sets||3,step=e.step||2.5;
   const reps=Array.isArray(item.reps)?item.reps:[item.reps||10,item.reps||10];
-  const t={n,rmin:reps[0],rmax:reps[1],w:item.w||0,t:item.t==null?null:item.t,note:'',flag:''};
+  const t={n,rmin:reps[0],rmax:reps[1],w:item.w||0,wmin:item.w||0,t:item.t==null?null:item.t,note:'',flag:''};
   const lp=lastPerf(item.ex),li=lastItem(item.ex),pain=!!(li&&li.it.pain),notes=[];
   const ws=lp?lp.it.sets.filter(s=>(s.r||0)>0&&(s.w||0)>0):[],top=topW(ws);
+  let W=Array.from({length:n},()=>t.w);
   if(e.kind==='w'&&lp&&p&&lp.s.date>=p.from&&ws.length){
-    const gap=ddiff(lp.s.date,today());
-    const hit=ws.length>=n&&ws.every(s=>s.w===top&&s.r>=t.rmax);
-    if(gap>21){t.w=roundStep(top*(gap>42?.65:.8),step);notes.push(`Перерыв ${pl(gap,'день','дня','дней')}: вес снижен`);t.flag='gap';}
-    else if(hit&&!pain&&lp.s.feel==='hard'){t.w=top;notes.push('В прошлый раз было тяжело: вес тот же');t.flag='hard';}
-    else if(hit&&!pain){t.w=round2(top+step);notes.push('Прибавка: в прошлый раз все подходы сделаны');t.flag='up';}
-    else t.w=top;
+    const base=lastLadder(ws,n),gap=ddiff(lp.s.date,today());
+    const hit=ws.length>=n&&ws.every(s=>s.r>=t.rmax);
+    W=base.slice();
+    if(gap>21){W=base.map(w=>roundStep(w*(gap>42?.65:.8),step));notes.push(`Перерыв ${pl(gap,'день','дня','дней')}: вес снижен`);t.flag='gap';}
+    else if(hit&&!pain&&lp.s.feel==='hard'){notes.push('В прошлый раз было тяжело: вес тот же');t.flag='hard';}
+    else if(hit&&!pain){const mx=Math.max(...base);W=base.map(w=>w===mx?round2(w+step):w);notes.push('Прибавка: в прошлый раз все подходы сделаны');t.flag='up';}
   }
   if(pain){
-    if(e.kind==='w'&&top>0){t.w=Math.min(t.w,Math.max(0,round2(top-step)));notes.unshift('В прошлый раз болело: вес на шаг ниже');}
+    if(e.kind==='w'&&top>0){const src=lastLadder(ws,n);W=W.map((w,i)=>Math.min(w,Math.max(0,round2(src[i]-step))));notes.unshift('В прошлый раз болело: вес на шаг ниже');}
     else notes.unshift('В прошлый раз болело: делай аккуратно');
     t.flag='pain';
   }
-  if(e.max!=null&&t.w>e.max){
-    t.w=e.max;if(t.flag==='up')notes.pop();
+  if(e.max!=null&&W.some(w=>w>e.max)){
+    W=W.map(w=>Math.min(w,e.max));if(t.flag==='up')notes.pop();
     notes.push(e.maxNote||`Потолок ${fnum(e.max)} кг`);if(!t.flag||t.flag==='up')t.flag='cap';
   }
+  t.w=Math.max(...W);t.wmin=Math.min(...W);
   t.note=notes.join(' · ');
-  t.sets=e.kind==='time'?Array.from({length:n},()=>({t:item.t||60})):Array.from({length:n},()=>({w:t.w,r:t.rmax}));
+  t.sets=e.kind==='time'?Array.from({length:n},()=>({t:item.t||60})):W.map(w=>({w,r:t.rmax}));
   return t;
 }
 function planText(pl0,e){
   if(!pl0)return 'Свое упражнение';
   if(e.kind==='time')return (pl0.n>1?pl0.n+' × ':'')+ftime(pl0.t,e);
   let s=pl0.n+' × '+(pl0.rmin===pl0.rmax?pl0.rmax:pl0.rmin+'–'+pl0.rmax);
-  if(pl0.w>0)s+=' · '+fnum(pl0.w)+' кг'+(e.x2?' ×2':'');
+  if(pl0.w>0)s+=' · '+(pl0.wmin&&pl0.wmin<pl0.w?fnum(pl0.wmin)+'–':'')+fnum(pl0.w)+' кг'+(e.x2?' ×2':'');
   return s;
 }
 function nextDay(p){
@@ -443,6 +447,8 @@ function weekChain(n){
   for(let i=n-1;i>=0;i--){const k=addDays(cur,-7*i),c=weekCount(k);out.push({k,c,on:c>=per,cur:i===0});}
   return out;
 }
+const gymCount=()=>S.sessions.filter(s=>s.kind!=='cardio').length;
+const sessCountText=()=>{const c=S.sessions.length-gymCount();return pl(gymCount(),'тренировка','тренировки','тренировок')+(c?' · '+c+' кардио':'');};
 const backupAge=()=>S.meta.lastBackupAt?Math.floor((Date.now()-S.meta.lastBackupAt)/864e5):null;
 
 //==================== ДОСТИЖЕНИЯ ====================
@@ -500,7 +506,7 @@ function allTimeTop(exId){let m=0;for(const o of S.sessions)for(const x of o.ite
 //==================== ТРЕНИРОВКА ====================
 function buildItems(day,p){
   return day.items.map(it=>{const t=target(it,p);return {ex:it.ex,sets:t.sets,done:false,pain:false,req:!!it.req,
-    plan:{n:t.n,rmin:t.rmin,rmax:t.rmax,w:t.w,t:t.t,note:t.note,flag:t.flag,tip:it.note||''}};});
+    plan:{n:t.n,rmin:t.rmin,rmax:t.rmax,w:t.w,wmin:t.wmin,t:t.t,note:t.note,flag:t.flag,tip:it.note||''}};});
 }
 function startWorkout(){
   if(S.active){go('workout');return;}
@@ -541,7 +547,7 @@ function finishWorkout(){
   S.sessions.push(out);sortSessions(S);S.active=null;save();askPersist();
   const ach=achCompute();
   SUM={id:out.id,prs,grow:grow.slice(0,3),gap:prevS?ddiff(prevS.date,out.date):0,before,after:weekInfo(prog()),
-    newAch:ach.list.filter(a=>a.id===out.id),core:ach.val.core,num:S.sessions.findIndex(x=>x.id===out.id)+1,
+    newAch:ach.list.filter(a=>a.id===out.id),core:ach.val.core,num:S.sessions.filter(x=>x.kind!=='cardio').findIndex(x=>x.id===out.id)+1,
     missed:req.filter(x=>!items.some(i=>i.ex===x&&i.sets.length))};
   go('home');closeAll();
   openSheet(summarySheet);
@@ -891,7 +897,7 @@ VIEWS.home=()=>{
   if(last)b+=`<div class="last">Последняя тренировка: <b>${fday(last.date)}</b></div>`;
   const lw=S.weighins[S.weighins.length-1];
   b+=`<div class="grid">
-    <button class="gbtn" data-a="go" data-v="history"><b>История</b><span>${pl(S.sessions.length,'тренировка','тренировки','тренировок')}</span></button>
+    <button class="gbtn" data-a="go" data-v="history"><b>История</b><span>${sessCountText()}</span></button>
     <button class="gbtn" data-a="go" data-v="exercises"><b>Упражнения</b><span>рекорды и графики</span></button>
     <button class="gbtn" data-a="go" data-v="body"><b>Тело</b><span>${lw?fnum(lw.w)+' кг · '+fdayS(lw.date):'замеров нет'}</span></button>
     <button class="gbtn" data-a="go" data-v="program"><b>Программа</b><span>${p?esc(p.title):'не загружена'}</span></button>
@@ -963,7 +969,7 @@ VIEWS.history=()=>{
       <div class="grow"><div class="t">${esc(s.day?s.title:(s.title||pl(s.items.length,'упражнение','упражнения','упражнений')))}${s.items.some(x=>x.pain)?' <span class="pdot" title="болело"></span>':''}</div><div class="s">${esc(names)}${s.items.length>3?' …':''}</div></div>
       <div class="r">${v?fbig(v)+' кг':''}</div></button>`;
   }
-  return {head:subHead('История',pl(S.sessions.length,'тренировка','тренировки','тренировок')),body:b||'<div class="empty">Тренировок пока нет</div>'};
+  return {head:subHead('История',sessCountText()),body:b||'<div class="empty">Тренировок пока нет</div>'};
 };
 VIEWS.exercises=()=>{
   const st=new Map();
@@ -1006,7 +1012,7 @@ VIEWS.program=()=>{
     b+=`<div class="mh">${esc(d.title)}${d.code===nd.code?' · следующая':''}</div><div class="card">`;
     for(const it of d.items){const e=ex(it.ex),t=target(it,p);
       b+=`<div class="sx" style="margin:6px 0 12px"><div class="xn">${esc(e.name)}${it.req?' <span class="tag">обязательно</span>':''}</div>
-        <div class="xs">${esc(planText({n:t.n,rmin:t.rmin,rmax:t.rmax,w:t.w,t:t.t},e))}${t.note?' · '+esc(t.note):''}</div>
+        <div class="xs">${esc(planText({n:t.n,rmin:t.rmin,rmax:t.rmax,w:t.w,wmin:t.wmin,t:t.t},e))}${t.note?' · '+esc(t.note):''}</div>
         ${it.note?`<div class="xs">${esc(it.note)}</div>`:''}</div>`;}
     b+='</div>';
   }
@@ -1015,7 +1021,8 @@ VIEWS.program=()=>{
 VIEWS.data=()=>{
   const nSets=S.sessions.reduce((a,s)=>a+s.items.reduce((x,it)=>x+it.sets.length,0),0),age=backupAge();
   const b=`<div class="card">
-      <div class="kv"><span>Тренировок</span><b>${S.sessions.length}</b></div>
+      <div class="kv"><span>Тренировок</span><b>${gymCount()}</b></div>
+      <div class="kv"><span>Кардио отдельно</span><b>${S.sessions.length-gymCount()}</b></div>
       <div class="kv"><span>Подходов</span><b>${fbig(nSets)}</b></div>
       <div class="kv"><span>Замеров тела</span><b>${S.weighins.length}</b></div>
       <div class="kv"><span>Последний бэкап</span><b>${age===null?'еще не было':age===0?'сегодня':pl(age,'день','дня','дней')+' назад'}</b></div>
