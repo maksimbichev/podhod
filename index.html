@@ -159,6 +159,25 @@ footer:empty{display:none;}
 .cmbox textarea{width:100%;min-height:84px;border:2px solid var(--line2);border-radius:14px;padding:10px 12px;font-size:16px;font-weight:600;line-height:1.35;resize:none;background:var(--card);color:var(--text);outline:none;}
 .cmbox textarea:focus{border-color:var(--ink);}
 .cmbox .hint{margin-top:4px;}
+/* секундомер: удержания (планка, вис, растяжка) и отдых между подходами */
+.tmr{display:flex;align-items:center;gap:14px;background:var(--tile);border-radius:18px;padding:12px 14px;margin-top:12px;}
+.tmr .grow{min-width:0;}
+.tm-l{color:var(--muted);font-size:13px;font-weight:700;}
+.tm-v{font-size:40px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1;}
+.tmr.run .tm-v{color:var(--ink);}
+.tmr.over{background:var(--acc-soft);}
+.tmr.over .tm-v{color:var(--acc);}
+.tm-b{flex:none;height:56px;min-width:108px;padding:0 18px;border-radius:16px;background:var(--ink);color:#fff;font-weight:800;font-size:17px;transition:transform .12s;}
+.tm-b:active{transform:scale(.96);}
+.tmr.run .tm-b{background:var(--acc);}
+.tm-x{display:block;margin-top:4px;color:var(--muted);font-size:13px;font-weight:700;}
+.restbtn{display:inline-block;margin:6px 0 0 36px;padding:12px 16px;border-radius:13px;background:var(--tile);font-weight:700;font-size:15px;font-variant-numeric:tabular-nums;transition:transform .12s;}
+.restbtn:active{transform:scale(.97);}
+.tmpill{position:fixed;left:50%;top:calc(var(--safe-t) + 10px);transform:translate(-50%,-160%);z-index:70;background:var(--ink);color:#fff;border-radius:22px;
+  padding:10px 18px;font-weight:800;font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap;box-shadow:0 6px 20px rgba(0,0,0,.18);transition:transform .25s cubic-bezier(.2,0,0,1),background .2s;}
+.tmpill.on{transform:translate(-50%,0);}
+.tmpill.over{background:var(--acc);}
+.tmpill small{font-weight:700;opacity:.7;margin-left:6px;font-size:13px;}
 .it-cm{display:block;color:var(--muted);font-size:13px;font-weight:600;font-style:italic;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .sx .xc{color:var(--muted);font-size:13.5px;font-weight:600;font-style:italic;margin-top:3px;}
 /* как настроить снаряд: рукоять, наклон скамьи */
@@ -384,10 +403,11 @@ footer:empty{display:none;}
 <div class="sheet" id="sheet"></div>
 <div class="toast" id="toast"></div>
 <div class="reveal" id="reveal" data-a="revealNext"></div>
+<button class="tmpill" id="tmPill" data-a="tmRest" aria-live="polite"></button>
 <input type="file" id="file" accept=".json,application/json" hidden>
 <script>
 'use strict';
-const VERSION='v9';
+const VERSION='v10';
 const LS_KEY='podhod.state.v1';
 const GROUPS=['Грудь','Спина','Ноги','Плечи','Руки','Пресс','Кардио','Растяжка','Другое'];
 const MON=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
@@ -843,6 +863,10 @@ function lastHit(lp,planned){
 // Вес из плана ставим как есть, но со страховкой: не добрал повторы, «тяжело» или был перерыв 7–21 день →
 // вес как в прошлый раз (сверяем каждый подход лесенки), «болело» → на шаг ниже, перерыв больше 3 недель → ниже,
 // потолок — всегда.
+function restSec(r){
+  if(!r)return 0;const m=String(r).replace(',','.').match(/[\d.]+/);if(!m)return 0;
+  const v=parseFloat(m[0]);return Math.round(/сек/.test(r)?v:v*60);
+}
 function planItem(it,p){
   const e=ex(it.ex),plan=(it.sets||[]).map(x=>Object.assign({},x)),notes=[];
   let sets=plan.map(x=>Object.assign({},x)),flag='';
@@ -873,7 +897,7 @@ function planItem(it,p){
   return {ex:it.ex,sets,done:false,pain:false,req:!!it.req,
     plan:{n:sets.length,sets:sets.map(x=>Object.assign({},x)),w:wts.length?Math.max(...wts):0,wmin:wts.length?Math.min(...wts):0,
       rmin:rs.length?Math.min(...rs):0,rmax:rs.length?Math.max(...rs):0,t:sets[0]&&sets[0].t!=null?sets[0].t:null,
-      note:notes.join(' · '),flag,tip:[it.note,it.rest?'отдых '+it.rest:''].filter(Boolean).join(' · ')}};
+      note:notes.join(' · '),flag,tip:[it.note,it.rest?'отдых '+it.rest:''].filter(Boolean).join(' · '),restSec:restSec(it.rest)}};
 }
 function startFrom(up,p){
   const s={id:uid(),date:today(),start:Date.now(),end:null,src:'app',prog:p?p.id:null,day:null,title:'Тренировка',items:[]};
@@ -906,7 +930,7 @@ const cleanSets=sets=>sets.map(x=>{const o={};
   .filter(x=>x.t!=null?x.t>0:x.r>0);
 let SUM=null;   // что показать в итоге последней тренировки
 function finishWorkout(){
-  const s=S.active;if(!s)return;
+  const s=S.active;if(!s)return;tmStop();
   // сделанные + «болело» без подходов: такое тоже идет в подбор веса и в разбор месяца
   const items=s.items.filter(i=>i.done||i.pain||i.comment)
     .map(i=>{const o={ex:i.ex,sets:i.done?cleanSets(i.sets):[]};if(i.pain){o.pain=true;if(i.painAt)o.painAt=i.painAt;}if(i.comment)o.comment=i.comment.trim();
@@ -947,8 +971,10 @@ function finishWorkout(){
 //==================== ШТОРКИ ====================
 let stack=[],CONFIRM=null;
 function openSheet(fn){if(!toastFn)hideToast();stack.push(fn);renderSheet(false);}
-function closeSheet(){stack.pop();ed=null;renderSheet(true);}
-function closeAll(){stack=[];ed=null;CONFIRM=null;renderSheet(false);}
+function closeSheet(){stack.pop();ed=null;renderSheet(true);cmFlush();}
+function closeAll(){stack=[];ed=null;CONFIRM=null;renderSheet(false);cmFlush();}
+// комментарий печатали — список под шторкой обновляем сразу при закрытии
+function cmFlush(){if(cmT){clearTimeout(cmT);cmT=null;if(view==='workout')render();}}
 function renderSheet(keep){
   const sh=$('#sheet'),sc=$('#scrim');
   if(!stack.length){sh.classList.remove('on');sc.classList.remove('on');return;}
@@ -1081,12 +1107,15 @@ function itemSheet(){
   if(it.plan&&it.plan.tip)h+=`<div class="tip">${esc(it.plan.tip)}</div>`;
   if(e.banned)h+=`<div class="warn">⚠ ${esc(e.banned)}</div>`;
   if(lp)h+=`<div class="lastp">Прошлый раз, ${fdayS(lp.s.date)}: ${esc(fsets(lp.it.sets,e))}</div>`;
+  if(e.kind==='time'&&e.group!=='Кардио'&&!ed)h+=holdHTML(it,e);
   h+=`<div class="cols${one}"><span></span>${cols.map(c=>`<span>${c.l}</span>`).join('')}</div>`;
   it.sets.forEach((st,ri)=>{h+=`<div class="srow${one}"><div class="sn">${ri+1}</div>${cols.map(c=>tileHTML(st,c,ri,e)).join('')}</div>`;});
   if(e.max!=null&&it.sets.some(s=>(s.w||0)>e.max))h+=`<div class="warn">Выше потолка. ${esc(e.maxNote||'Потолок '+fnum(e.max)+' кг')}</div>`;
   h+=`<div class="srow${one}"><div class="sn">${it.sets.length+1}</div><button class="addset" data-a="addSet">Добавить подход</button></div>`;
   if(it.sets.length>1)h+=`<button class="rmset" data-a="rmSet">Убрать последний подход</button>`;
   if(!ed){
+    const rs=it.plan&&it.plan.restSec;
+    if(rs&&e.kind!=='time')h+=`<button class="restbtn" data-a="tmRest" data-s="${rs}">⏱ Отдых ${mmss(rs)}</button><br>`;
     const down=e.kind==='w'&&it.sets.some(s=>(s.w||0)>0);
     h+=`<button class="painbtn${it.pain?' on':''}" data-a="pain">${it.pain?'✓ Болело · '+(down?'в следующий раз вес на шаг ниже':'учту в следующий раз'):'Болело'}</button>`;
     h+=`<button class="cmbtn${it.comment?' on':''}" data-a="comment">${it.comment?'✓ Комментарий':'Комментарий'}</button>`;
@@ -1098,6 +1127,47 @@ function itemSheet(){
   h+=`<div class="sh-foot">${ed?keypadHTML(e):`<button class="round" data-a="stats" data-ex="${esc(it.ex)}" aria-label="График">${ICON.chart}</button><button class="btn-black" data-a="itemDone">Готово</button>`}</div>`;
   if(it.done&&!ed)h+=`<button class="link" data-a="itemUndo">Отметить как не сделанное</button>`;
   return h;
+}
+
+// --- секундомер. Один на всю тренировку: удержание (считает вниз до цели и дальше «+») или отдых между подходами.
+// Время считаем по часам, а не тиками: заблокировал телефон — после разблокировки цифры верные.
+let TM=null,TMI=null,AC=null,WL=null;
+const mmss=sec=>{sec=Math.max(0,Math.round(sec));return Math.floor(sec/60)+':'+pad(sec%60);};
+function beep(){
+  try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();
+    [0,.22].forEach(d=>{const o=AC.createOscillator(),g=AC.createGain(),t=AC.currentTime+d;o.frequency.value=988;
+      g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.35,t+.02);g.gain.exponentialRampToValueAtTime(.0001,t+.18);
+      o.connect(g);g.connect(AC.destination);o.start(t);o.stop(t+.2);});}catch(e){}
+  try{if(navigator.vibrate)navigator.vibrate([180,80,180]);}catch(e){}
+}
+function tmStart(o){
+  try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();if(AC.resume)AC.resume();}catch(e){}   // звук разрешается только по нажатию
+  try{if(navigator.wakeLock&&!WL)navigator.wakeLock.request('screen').then(l=>{WL=l;}).catch(()=>{});}catch(e){}
+  TM=Object.assign({t0:Date.now(),beeped:false},o);clearInterval(TMI);TMI=setInterval(tmTick,200);tmTick();
+}
+function tmStop(){TM=null;clearInterval(TMI);TMI=null;try{if(WL){WL.release();WL=null;}}catch(e){}tmTick();}
+const tmEl=()=>TM?(Date.now()-TM.t0)/1000:0;
+function tmTick(){
+  const el=tmEl(),pill=$('#tmPill');
+  if(TM&&!TM.beeped&&el>=TM.target){TM.beeped=true;beep();}
+  // отдых: плашка сверху видна и над списком, и над шторкой
+  if(TM&&TM.mode==='rest'){const left=TM.target-el;
+    pill.innerHTML=left>0?`Отдых ${mmss(left)}<small>стоп</small>`:`Пора на подход<small>+${mmss(-left)}</small>`;
+    pill.classList.add('on');pill.classList.toggle('over',left<=0);
+    if(left<-90)tmStop();}
+  else pill.classList.remove('on','over');
+  // удержание: большие цифры в шторке упражнения
+  const v=$('#tmv'),box=$('#tmr');
+  if(v&&box&&TM&&TM.mode==='hold'){const left=TM.target-el;v.textContent=left>0?mmss(left):'+'+mmss(-left);box.classList.toggle('over',left<=0);}
+}
+function holdHTML(it,e){
+  const n=it.sets.length,run=TM&&TM.mode==='hold'&&TM.i===curItem,row=run?TM.row:Math.min(it.tRow||0,n);
+  if(row>=n)return `<div class="tmr"><div class="grow"><div class="tm-l">Секундомер</div><div class="tm-v">✓</div><span class="tm-x">Все подходы записаны — жми «Готово»</span></div>
+    <button class="tm-b" data-a="tmAgain">Заново</button></div>`;
+  const tgt=it.sets[row].t||60,left=run?tgt-tmEl():tgt;
+  return `<div class="tmr${run?' run':''}${run&&left<=0?' over':''}" id="tmr"><div class="grow"><div class="tm-l">Подход ${row+1} из ${n} · цель ${ftime(tgt,e)}</div>
+    <div class="tm-v" id="tmv">${left>0?mmss(left):'+'+mmss(-left)}</div>${run?'<span class="tm-x">Остановишь — время запишется в подход</span>':''}</div>
+    <button class="tm-b" data-a="tmHold">${run?'Стоп':'Старт'}</button></div>`;
 }
 
 // --- добавить упражнение
@@ -1640,6 +1710,7 @@ const ACT={
   rmSet:()=>{const it=S.active.items[curItem];if(it.sets.length>1)it.sets.pop();ed=null;save();renderSheet(true);},
   itemDone:()=>{
     const s=S.active,it=s.items[curItem],e=ex(it.ex);
+    if(TM&&TM.mode==='hold'&&TM.i===curItem){it.sets[TM.row].t=Math.max(1,Math.round(tmEl()));tmStop();}
     it.done=true;ed=null;save();closeAll();justDone=curItem;render();justDone=-1;
     const top=topW(cleanSets(it.sets)),prev=e.kind==='w'?allTimeTop(it.ex):0;
     if(prev>0&&top>prev)toast(`Новый рекорд: ${e.name} ${fnum(top)} кг!`);
@@ -1647,6 +1718,12 @@ const ACT={
   },
   itemUndo:()=>{S.active.items[curItem].done=false;save();closeAll();render();},
   pain:()=>{const it=S.active&&S.active.items[curItem];if(!it)return;it.pain=!it.pain;if(!it.pain)delete it.painAt;ed=null;save();render();renderSheet(true);},
+  // удержание: старт → стоп записывает время в подход и переходит к следующему
+  tmHold:()=>{const it=S.active&&S.active.items[curItem];if(!it)return;
+    if(TM&&TM.mode==='hold'&&TM.i===curItem){const sec=Math.max(1,Math.round(tmEl()));it.sets[TM.row].t=sec;it.tRow=TM.row+1;tmStop();save();render();renderSheet(true);return;}
+    const row=Math.min(it.tRow||0,it.sets.length-1);tmStart({mode:'hold',i:curItem,row,target:it.sets[row].t||60});renderSheet(true);},
+  tmAgain:()=>{const it=S.active&&S.active.items[curItem];if(!it)return;it.tRow=0;save();renderSheet(true);},
+  tmRest:d=>{if(TM&&TM.mode==='rest'){tmStop();return;}if(TM&&TM.mode==='hold')return;const sec=+d.s||0;if(sec)tmStart({mode:'rest',target:sec});},
   painAt:d=>{const it=S.active&&S.active.items[curItem];if(!it)return;it.pain=true;it.painAt=it.painAt===d.k?null:d.k;if(!it.painAt)delete it.painAt;save();render();renderSheet(true);},
   // другой хват: веса берем из истории этого варианта; вернулся к исходному — как было в плане
   swapEx:d=>{const it=S.active&&S.active.items[curItem];if(!it||it.ex===d.id)return;
@@ -1734,7 +1811,7 @@ const ACT={
   },true),
   toastAct:()=>{const f=toastFn;toastFn=null;$('#toast').classList.remove('on');if(f)f();},
 };
-function cancelWorkout(){S.active=null;save();closeAll();go('home');}
+function cancelWorkout(){tmStop();S.active=null;save();closeAll();go('home');}
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-a]');if(!el)return;
   const f=ACT[el.dataset.a];if(f){e.preventDefault();f(el.dataset,el);}
@@ -1744,7 +1821,7 @@ document.addEventListener('input',e=>{
   else if(e.target.id==='nxName'&&newEx)newEx.name=e.target.value;
   else if(e.target.id==='itCm'&&S.active&&S.active.items[curItem]){const it=S.active.items[curItem],v=e.target.value.slice(0,500);
     if(v.trim())it.comment=v;else delete it.comment;save();
-    clearTimeout(cmT);cmT=setTimeout(()=>{if(view==='workout')render();},250);   // список под шторкой тоже обновится
+    clearTimeout(cmT);cmT=setTimeout(()=>{cmT=null;if(view==='workout')render();},250);   // список под шторкой тоже обновится
     const b=$('#sheet [data-a="comment"]');if(b){b.classList.toggle('on',!!it.comment);b.textContent=it.comment?'✓ Комментарий':'Комментарий';}}
 });
 setInterval(()=>{if(view==='workout'&&S.active){const h=$('#hsub');if(h)h.textContent=workoutSub(S.active);}},30000);
