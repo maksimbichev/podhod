@@ -25,7 +25,7 @@
 html,body{margin:0;height:100%;}
 body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,system-ui,'Segoe UI',sans-serif;font-size:16px;line-height:1.35;overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-font-smoothing:antialiased;touch-action:manipulation;}
 button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;touch-action:manipulation;}
-input{font:inherit;-webkit-user-select:text;user-select:text;}
+input,textarea{font:inherit;-webkit-user-select:text;user-select:text;}
 ::-webkit-scrollbar{width:0;height:0;}
 #app{display:flex;flex-direction:column;height:100dvh;max-width:640px;margin:0 auto;}
 header{flex:none;padding:calc(var(--safe-t) + 14px) 16px 10px;}
@@ -151,6 +151,16 @@ footer:empty{display:none;}
 .pchips button:active{transform:scale(.95);}
 .pchips button.on{background:var(--pain);color:#fff;}
 .painat .warn{margin:10px 0 0;}
+/* комментарий к упражнению: что болело, мысли, правки по приложению */
+.cmbtn{display:inline-block;margin:6px 0 0 8px;padding:12px 16px;border-radius:13px;background:var(--tile);font-weight:700;font-size:15px;transition:transform .12s;}
+.cmbtn:active{transform:scale(.97);}
+.cmbtn.on{background:var(--ink);color:#fff;}
+.cmbox{margin:10px 0 0 36px;}
+.cmbox textarea{width:100%;min-height:84px;border:2px solid var(--line2);border-radius:14px;padding:10px 12px;font-size:16px;font-weight:600;line-height:1.35;resize:none;background:var(--card);color:var(--text);outline:none;}
+.cmbox textarea:focus{border-color:var(--ink);}
+.cmbox .hint{margin-top:4px;}
+.it-cm{display:block;color:var(--muted);font-size:13px;font-weight:600;font-style:italic;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sx .xc{color:var(--muted);font-size:13.5px;font-weight:600;font-style:italic;margin-top:3px;}
 /* как настроить снаряд: рукоять, наклон скамьи */
 .setup{display:inline-block;margin-top:8px;font-size:13.5px;font-weight:700;background:var(--tile);padding:5px 10px;border-radius:9px;}
 .it-x{display:block;color:var(--muted);font-size:13px;font-weight:700;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -377,7 +387,7 @@ footer:empty{display:none;}
 <input type="file" id="file" accept=".json,application/json" hidden>
 <script>
 'use strict';
-const VERSION='v8';
+const VERSION='v9';
 const LS_KEY='podhod.state.v1';
 const GROUPS=['Грудь','Спина','Ноги','Плечи','Руки','Пресс','Кардио','Растяжка','Другое'];
 const MON=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
@@ -898,10 +908,10 @@ let SUM=null;   // что показать в итоге последней тр
 function finishWorkout(){
   const s=S.active;if(!s)return;
   // сделанные + «болело» без подходов: такое тоже идет в подбор веса и в разбор месяца
-  const items=s.items.filter(i=>i.done||i.pain)
-    .map(i=>{const o={ex:i.ex,sets:i.done?cleanSets(i.sets):[]};if(i.pain){o.pain=true;if(i.painAt)o.painAt=i.painAt;}
+  const items=s.items.filter(i=>i.done||i.pain||i.comment)
+    .map(i=>{const o={ex:i.ex,sets:i.done?cleanSets(i.sets):[]};if(i.pain){o.pain=true;if(i.painAt)o.painAt=i.painAt;}if(i.comment)o.comment=i.comment.trim();
       if(i.done&&i.plan&&i.plan.sets)o.tgt=i.plan.sets.map(x=>x.t!=null?{t:x.t}:{w:x.w||0,r:x.r||0});return o;})
-    .filter(i=>i.sets.length||i.pain);
+    .filter(i=>i.sets.length||i.pain||i.comment);
   const prevS=S.sessions.length?S.sessions[S.sessions.length-1]:null;
   const prs=[],grow=[],over=[];
   for(const it of items){
@@ -961,7 +971,7 @@ function confirmSheet(title,html,okLabel,fn,danger){
 // Шторку можно смахнуть вниз, как в iOS
 (function(){
   const sh=$('#sheet');let y0=null,x0=0,dy=0,drag=false;
-  sh.addEventListener('touchstart',e=>{if(sh.scrollTop>0||e.touches.length>1){y0=null;return;}y0=e.touches[0].clientY;x0=e.touches[0].clientX;dy=0;drag=false;},{passive:true});
+  sh.addEventListener('touchstart',e=>{if(sh.scrollTop>0||e.touches.length>1||e.target.closest('textarea,input')){y0=null;return;}y0=e.touches[0].clientY;x0=e.touches[0].clientX;dy=0;drag=false;},{passive:true});
   sh.addEventListener('touchmove',e=>{
     if(y0==null)return;const t=e.touches[0];dy=t.clientY-y0;const dx=t.clientX-x0;
     if(!drag){if(dy>8&&dy>Math.abs(dx)*1.5)drag=true;else if(Math.abs(dx)>8||dy<-8){y0=null;return;}}
@@ -1055,7 +1065,7 @@ function applyField(st,f,v,e){
   else if(f==='d')st.d=v?round2(v):null;
   else st.t=e.tu==='sec'?Math.round(v):Math.round(v*60);
 }
-let curItem=0,justDone=-1;
+let curItem=0,justDone=-1,cmOpen=false,cmT=null;
 function itemSheet(){
   const it=S.active&&S.active.items[curItem];if(!it)return '';
   const e=ex(it.ex),cols=colsFor(e),one=cols.length===1?' one':'',lp=lastPerf(it.ex);
@@ -1079,8 +1089,11 @@ function itemSheet(){
   if(!ed){
     const down=e.kind==='w'&&it.sets.some(s=>(s.w||0)>0);
     h+=`<button class="painbtn${it.pain?' on':''}" data-a="pain">${it.pain?'✓ Болело · '+(down?'в следующий раз вес на шаг ниже':'учту в следующий раз'):'Болело'}</button>`;
+    h+=`<button class="cmbtn${it.comment?' on':''}" data-a="comment">${it.comment?'✓ Комментарий':'Комментарий'}</button>`;
     if(it.pain)h+=`<div class="painat"><div class="pq">Что именно болело?</div><div class="pchips">${PAIN_AT.map(([k,l])=>`<button class="${it.painAt===k?'on':''}" data-a="painAt" data-k="${k}">${l}</button>`).join('')}</div>
       ${it.painAt==='lowback'||it.painAt==='upback'?'<div class="warn">Боль в спине во время подхода — это упражнение сегодня прекрати, дальше без него</div>':''}</div>`;
+    if(cmOpen||it.comment)h+=`<div class="cmbox"><textarea id="itCm" maxlength="500" rows="3" placeholder="Что болело, как шло, что поправить в приложении…">${esc(it.comment||'')}</textarea>
+      <div class="hint">Сохраняется само. Попадет в историю и в бэкап — разберем на разборе месяца.</div></div>`;
   }
   h+=`<div class="sh-foot">${ed?keypadHTML(e):`<button class="round" data-a="stats" data-ex="${esc(it.ex)}" aria-label="График">${ICON.chart}</button><button class="btn-black" data-a="itemDone">Готово</button>`}</div>`;
   if(it.done&&!ed)h+=`<button class="link" data-a="itemUndo">Отметить как не сделанное</button>`;
@@ -1223,6 +1236,7 @@ function summarySheet(){
   for(const r of SUM.over||[])h+=HL('dim','!',`${esc(r.name)}: ${fnum(r.top)} кг — выше потолка ${fnum(r.max)} кг`);
   for(const g of SUM.grow)h+=HL('ok','↑',`${esc(g.name)}: ${esc(g.txt)}`);
   for(const a of SUM.newAch)h+=HL('acc medal',badgeSVG(a.k,a.i,'got',30),`<b>Новое достижение:</b> ${esc(a.title)}`);
+  for(const i of s.items.filter(x=>x.comment))h+=HL('dim','✎',`<b>${esc(ex(i.ex).name)}:</b> ${esc(i.comment)}`);
   const pains=s.items.filter(i=>i.pain);
   if(pains.length)h+=HL('pain','!',`<b>Болело:</b> ${pains.map(i=>esc(ex(i.ex).name)+(i.painAt?' ('+painShort(i.painAt)+')':'')).join(', ')}. Учту в следующий раз и в разборе месяца`);
   return `<div class="done-hero"><div class="ok">${ICON.check}</div><div class="h2">${isC?`Кардио-день №${SUM.num} записан`:`Тренировка №${SUM.num} записана`}</div>
@@ -1239,7 +1253,7 @@ function sessionSheet(id){
   return `<div class="h2">${esc(fday(s.date,true))}</div>
     <div class="sub">${[s.title,s.planN!=null?'план №'+s.planN:'',dur?fdur(dur):'',v?fbig(v)+' кг объем':'',cardioOf(s),s.src==='forma'?'из Forma':''].filter(Boolean).map(esc).join(' · ')}</div>
     ${s.src==='app'?feelHTML(s):''}
-    ${s.items.map(it=>{const e=ex(it.ex);return `<div class="sx"><div class="xn">${esc(e.name)}${it.pain?' '+painTag(it):''}</div><div class="xs">${it.sets.length?esc(fsets(it.sets,e)):'не сделано'}</div></div>`;}).join('')}
+    ${s.items.map(it=>{const e=ex(it.ex);return `<div class="sx"><div class="xn">${esc(e.name)}${it.pain?' '+painTag(it):''}</div><div class="xs">${it.sets.length?esc(fsets(it.sets,e)):'не сделано'}</div>${it.comment?`<div class="xc">«${esc(it.comment)}»</div>`:''}</div>`;}).join('')}
     <div class="row2"><button class="btn-tile" data-a="delSession" data-id="${esc(s.id)}">Удалить</button><button class="btn-black" data-a="closeAll">Закрыть</button></div>`;
 }
 // --- прогресс и достижения: открытые яркие, будущие бледные, ближайшие с прогрессом
@@ -1356,7 +1370,7 @@ VIEWS.workout=()=>{
   s.items.forEach((it,i)=>{
     const e=ex(it.ex);
     b+=`<button class="item${it.done?' done':''}${i===justDone?' pop':''}" data-a="openItem" data-i="${i}"><span class="ck">${it.done?ICON.check:''}</span>
-      <span class="grow"><span class="it-n">${esc(e.name)}</span>${e.setup&&!it.done?`<span class="it-x">${esc(e.setup)}</span>`:''}<span class="it-s">${esc(it.done?fsets(it.sets,e):planText(it.plan,e))}</span>
+      <span class="grow"><span class="it-n">${esc(e.name)}</span>${e.setup&&!it.done?`<span class="it-x">${esc(e.setup)}</span>`:''}<span class="it-s">${esc(it.done?fsets(it.sets,e):planText(it.plan,e))}</span>${it.comment?`<span class="it-cm">«${esc(it.comment)}»</span>`:''}
       ${!it.done&&it.plan&&it.plan.note?`<span class="it-note${it.plan.flag==='pain'?' pain':''}">${esc(it.plan.note)}</span>`:''}</span>
       ${it.pain?painTag(it):it.req&&!it.done?'<span class="tag">обязательно</span>':''}</button>`;
   });
@@ -1602,7 +1616,9 @@ const ACT={
   closeAll:()=>closeAll(),
   confirmOk:()=>{const f=CONFIRM;CONFIRM=null;closeSheet();if(f)f();},
   ach:()=>openSheet(achSheet),
-  openItem:d=>{curItem=+d.i;ed=null;openSheet(itemSheet);},
+  openItem:d=>{curItem=+d.i;ed=null;cmOpen=false;openSheet(itemSheet);},
+  comment:()=>{if(!S.active)return;cmOpen=true;renderSheet(true);const t=$('#itCm');if(t){t.focus({preventScroll:true});t.setSelectionRange(t.value.length,t.value.length);
+    const sh=$('#sheet');sh.scrollTop=sh.scrollHeight;}},
   edit:d=>{const row=+d.row;if(ed&&ed.row===row&&ed.f===d.f)ed=null;else ed={row,f:d.f,buf:'',fresh:true};renderSheet(true);},
   kp:d=>{
     if(!ed||!S.active)return;
@@ -1726,6 +1742,10 @@ document.addEventListener('click',e=>{
 document.addEventListener('input',e=>{
   if(e.target.id==='exq'){exQuery=e.target.value;const l=$('#exlist');if(l)l.innerHTML=exListHTML();}
   else if(e.target.id==='nxName'&&newEx)newEx.name=e.target.value;
+  else if(e.target.id==='itCm'&&S.active&&S.active.items[curItem]){const it=S.active.items[curItem],v=e.target.value.slice(0,500);
+    if(v.trim())it.comment=v;else delete it.comment;save();
+    clearTimeout(cmT);cmT=setTimeout(()=>{if(view==='workout')render();},250);   // список под шторкой тоже обновится
+    const b=$('#sheet [data-a="comment"]');if(b){b.classList.toggle('on',!!it.comment);b.textContent=it.comment?'✓ Комментарий':'Комментарий';}}
 });
 setInterval(()=>{if(view==='workout'&&S.active){const h=$('#hsub');if(h)h.textContent=workoutSub(S.active);}},30000);
 
